@@ -430,3 +430,42 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'KBD_REPLAY'){ TTS.rewind10(); }
   if (msg.type === 'KBD_SKIP')  { TTS.skip10(); }
 });
+
+let u = null, rate = 1.0, selectedVoiceName = null;
+
+function pickVoice() {
+  const vs = speechSynthesis.getVoices();
+  return vs.find(v => v.name === selectedVoiceName) || vs.find(v => v.default) || vs[0] || null;
+}
+
+function speakText(text) {
+  stopTTS();
+  u = new SpeechSynthesisUtterance(text);
+  u.rate = rate;
+  const v = pickVoice();
+  if (v) u.voice = v;
+
+  u.onstart = () => showToast('Playing');
+  u.onend   = () => showToast('Stopped');
+  u.onerror = () => showToast('Error');
+  u.onboundary = (e) => {
+    if (e.name === 'word' || e.charLength > 0) {
+      // update progress/highlight if you have that wired
+    }
+  };
+  speechSynthesis.speak(u);
+}
+
+function stopTTS(){ if (speechSynthesis.speaking || speechSynthesis.paused) speechSynthesis.cancel(); u = null; }
+function pauseTTS(){ if (speechSynthesis.speaking) speechSynthesis.pause(); }
+function resumeTTS(){ if (speechSynthesis.paused) speechSynthesis.resume(); }
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'CH_PLAY')   speakText(msg.text);
+  if (msg.type === 'CH_PAUSE')  { pauseTTS(); showToast('Paused'); }
+  if (msg.type === 'CH_TOGGLE') { speechSynthesis.paused ? resumeTTS() : pauseTTS(); }
+  if (msg.type === 'CH_REPLAY') { showToast('Rewound 10s'); /* call your restartFromWordIndex(...) here */ }
+  if (msg.type === 'CH_SKIP')   { showToast('Skipped 10s'); /* restartFromWordIndex(...) */ }
+  if (msg.type === 'SET_RATE')  { rate = msg.rate || 1.0; if (u) { u.rate = rate; pauseTTS(); resumeTTS(); } }
+  if (msg.type === 'SET_VOICE') { selectedVoiceName = msg.voiceName || null; /* next speak uses it */ }
+});

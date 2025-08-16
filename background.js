@@ -115,15 +115,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 });
 
 // Keyboard shortcuts (MV3 "commands") → forward to active tab
-chrome.commands?.onCommand.addListener((command) => {
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    const tabId = tabs?.[0]?.id;
-    if (!tabId) return;
-    log('kbd', { command, tabId });
-    if (command === 'toggle-play-pause') chrome.tabs.sendMessage(tabId, { type: 'KBD_TOGGLE' });
-    if (command === 'replay-10s')       chrome.tabs.sendMessage(tabId, { type: 'KBD_REPLAY', seconds: 10 });
-    if (command === 'skip-10s')         chrome.tabs.sendMessage(tabId, { type: 'KBD_SKIP',   seconds: 10 });
-  });
+async function relayToActiveTab(payload) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return;
+  chrome.tabs.sendMessage(tab.id, payload);
+}
+
+chrome.commands.onCommand.addListener((cmd) => {
+  if (cmd === 'replay-10s') relayToActiveTab({ type: 'CH_REPLAY', seconds: 10 });
+  if (cmd === 'skip-10s')   relayToActiveTab({ type: 'CH_SKIP', seconds: 10 });
+  if (cmd === 'toggle-play-pause') relayToActiveTab({ type: 'CH_TOGGLE' });
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'CH_PLAY') relayToActiveTab({ type: 'CH_PLAY', idx: msg.idx, text: msg.text });
+  if (msg.type === 'CH_PAUSE') relayToActiveTab({ type: 'CH_PAUSE' });
+  if (msg.type === 'SET_RATE') relayToActiveTab({ type: 'SET_RATE', rate: msg.rate });
+  if (msg.type === 'SET_VOICE') relayToActiveTab({ type: 'SET_VOICE', voiceName: msg.voiceName });
 });
 
 // --- Helpers ---
