@@ -36,3 +36,23 @@ pauseBtn.addEventListener('click', () => {
   console.log("[popup] Pause button clicked");
   alert("Pause only works during direct popup playback. Background audio can’t be paused yet.");
 });
+
+// Load settings on popup open
+chrome.storage.sync.get(['rate', 'voice', 'preferLocal'], (settings) => {
+  document.getElementById('rateInput').value = settings.rate || 1.0;
+  document.getElementById('voiceSelect').value = settings.voice || '';
+  document.getElementById('preferLocalCheckbox').checked = settings.preferLocal || false;
+});
+
+// Save settings when changed
+const saveSettings = () => {
+  const rate = parseFloat(document.getElementById('rateInput').value);
+  const voice = document.getElementById('voiceSelect').value;
+  const preferLocal = document.getElementById('preferLocalCheckbox').checked;
+
+  chrome.storage.sync.set({ rate, voice, preferLocal });
+};
+
+document.getElementById('rateInput').addEventListener('change', saveSettings);
+document.getElementById('voiceSelect').addEventListener('change', saveSettings);
+document.getElementById('preferLocalCheckbox').addEventListener('change', saveSettings);

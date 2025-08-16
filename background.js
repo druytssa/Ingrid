@@ -213,6 +213,13 @@ if (typeof speechSynthesis !== "undefined" && speechSynthesis.onvoiceschanged !=
   speechSynthesis.onvoiceschanged = () => {};
 }
 
+// Load settings on startup
+chrome.storage.sync.get(['rate', 'voice', 'preferLocal'], (settings) => {
+  state.rate = settings.rate || 1.0;
+  state.selectedVoiceName = settings.voice || null;
+  state.preferLocal = settings.preferLocal || true;
+});
+
 function toast(tabId, text) {
   if (tabId == null) return;
   chrome.tabs.sendMessage(tabId, { type: 'SHOW_TOAST', text });
