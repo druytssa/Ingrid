@@ -124,7 +124,7 @@ async function relayToActiveTab(payload) {
 chrome.commands.onCommand.addListener((cmd) => {
   if (cmd === 'replay-10s') relayToActiveTab({ type: 'CH_REPLAY', seconds: 10 });
   if (cmd === 'skip-10s')   relayToActiveTab({ type: 'CH_SKIP', seconds: 10 });
-  if (cmd === 'toggle-play-pause') relayToActiveTab({ type: 'CH_TOGGLE' });
+  if (cmd === 'play-pause') relayToActiveTab({ type: 'CH_TOGGLE' });
 });
 
 chrome.runtime.onMessage.addListener((msg) => {

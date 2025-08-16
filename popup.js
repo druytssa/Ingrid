@@ -130,15 +130,10 @@ if (!window.__INGRID_POPUP_INIT__) {
     spinner && (spinner.style.display = 'block');
     playBtn.disabled = true;
     statusText.textContent = 'Starting…';
-    sendMessage('play-stored-audio', {}, (res) => {
-      spinner && (spinner.style.display = 'none');
-      playBtn.disabled = false;
-      if (!res?.ok && res?.status !== 'ok') {
-        statusText.textContent = 'Open a ChatGPT tab first';
-        return;
-      }
-      statusText.textContent = 'Now playing 🔊';
-    });
+    sendMessage('play-stored-audio'); // fire-and-forget
+    spinner && (spinner.style.display = 'none');
+    playBtn.disabled = false;
+    statusText.textContent = 'Now playing 🔊';
   });
 
   pauseBtn?.addEventListener('click', () => {

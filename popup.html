@@ -1,280 +1,108 @@
 <!DOCTYPE html>
 <html>
-  <head>
+<head>
   <meta charset="UTF-8" />
-  <title>Ingrid — TTS Control</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      :root {
-        --bg: #1b1b1b;
-      html, body {
-        margin: 0; padding: 10px;
-        background: var(--bg); color: var(--text);
-        font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        width: 320px;               /* more breathing room */
-        max-height: 540px;           /* keep it compact */
-        overflow: auto;              /* smooth scroll in popup */
-      }
-  .row { display: flex; align-items: center; gap: 8px; }
-  .col { display: flex; flex-direction: column; gap: 8px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
-  label { font-size: 12px; color: var(--muted); }
-  input[type="range"] { width: 100%; }
-  select, input[type="password"] {
-        width: 100%; border-radius: 8px; border: 1px solid var(--border);
-        background: #0f0f0f; color: var(--text); padding: 6px 8px;
-      }
-      .btnbar { display: flex; justify-content: space-evenly; gap: 10px; margin-top: 10px; }
-      button {
-        background: #0f0f0f; border: 1px solid var(--border);
-        border-radius: 10px; padding: 6px 8px; cursor: pointer;
-      }
-      button:hover { border-color: #3a3a3a; }
-  button img { width: 20px; height: 20px; display: block; }
-  #statusText { margin-top: 8px; color: var(--muted); min-height: 16px; }
-  #spinner { display: none; margin: 6px auto 0; }
-    </style>
-  </head>
-  <body>
-    <!-- Mode toggle + API (OpenAI) -->
-    <div class="panel col" style="margin-bottom:10px">
-      <label class="row" style="gap:8px">
-        <input id="useOpenAi" type="checkbox" />
-        <span>Use OpenAI TTS (online)</span>
-      </label>
-      <div class="col">
-        <label for="apiKey">OpenAI API key</label>
-        <input id="apiKey" type="password" placeholder="sk-..." autocomplete="off" />
-      </div>
-      <div class="col">
-        <label for="oaVoice">OpenAI voice</label>
-        <select id="oaVoice">
-          <option value="alloy">alloy</option>
-          <option value="verse">verse</option>
-          <option value="aria">aria</option>
-        </select>
-      </div>
-  </div>
-
-  <!-- Local voice + rate -->
-    <div class="panel col" style="margin-bottom:10px">
-      <div class="col">
-        <label for="rateInput">Rate <span id="rateVal" style="float:right">1.0×</span></label>
-        <input id="rateInput" type="range" min="0.6" max="1.8" step="0.1" value="1.0" />
-      </div>
-      <div class="col">
-        <label for="voiceSelect">Local voice</label>
-        <select id="voiceSelect"></select>
-      </div>
-      <label class="row" style="gap:8px">
-        <input id="preferLocalCheckbox" type="checkbox" checked />
-        <span>Prefer local (offline) voices</span>
-  </div>
-
-  <!-- Minimal rate/voice UI block -->
-  <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px; width:160px">
-    <label style="font-size:12px; opacity:.8">Rate
-      <input id="rateInput" type="number" min="0.5" max="2" step="0.1" value="1.0" style="width:100%">
-    </label>
-    <label style="font-size:12px; opacity:.8">Voice
-      <select id="voiceSelect" style="width:100%"></select>
-    </label>
-    <label style="font-size:12px; opacity:.8">
-      <input id="preferLocalCheckbox" type="checkbox" checked> Prefer local voices
-    </label>
-  </div>
-
-  <!-- Controls -->
-    <div class="btnbar">
-      <button id="playBtn" title="Play">
-        <img src="play_icon.png" alt="Play">
-      </button>
-      <button id="pauseBtn" title="Pause">
-        <img src="pause_icon.png" alt="Pause">
-      </button>
-
-    <!-- Spinner + status -->
-    <div id="spinner" aria-hidden="true">
-      <svg width="22" height="22" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg" stroke="#8aa1b1">
-        <g fill="none" fill-rule="evenodd">
-          <g transform="translate(1 1)" stroke-width="2">
-            <circle stroke-opacity=".2" cx="18" cy="18" r="18"/>
-            <path d="M36 18c0-9.94-8.06-18-18-18">
-              <animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="1s" repeatCount="indefinite"/>
-            </path>
-          </g>
-        </g>
-      </svg>
-    </div>
-    <div id="statusText" aria-live="polite"></div>
-    <div class="panel col" style="margin-top:10px">
-      <div class="row" style="justify-content:space-between">
-        <label>Log</label>
-        <div class="row" style="gap:6px">
-          <button id="logRefresh" title="Refresh">Refresh</button>
-          <button id="logCopy" title="Copy">Copy</button>
-          <button id="logClear" title="Clear">Clear</button>
-        </div>
-      </div>
-      <div id="logView" style="max-height:160px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; background:#0e0e0e; border:1px solid #2a2a2a; border-radius:8px; padding:6px;"></div>
-    </div>
-
-    <script src="popup.js"></script>
-  </body>
- </html>
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>Juniper TTS Player</title>
-    <style>
-      :root {
-        color-scheme: dark;
-      }
-      body {
-        background-color: #1e1e1e;
-        color: #ffffff;
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-        margin: 0;
-        padding: 12px;
-        width: 280px;
-        box-sizing: border-box;
-      }
-      .row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .btn {
-        background: #2a2a2a;
-        border: 1px solid #3a3a3a;
-        border-radius: 8px;
-        cursor: pointer;
-        padding: 8px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
-      }
-      .btn:hover { background: #333; border-color: #555; }
-      .btn:active { transform: translateY(1px); }
-      .btn img { width: 22px; height: 22px; display: block; }
-      .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
-
-      label {
-        font-size: 12px;
-        color: #cfcfcf;
-        display: block;
-        margin-bottom: 4px;
-      }
-      select, input[type="range"] {
-        width: 100%;
-        background: #2a2a2a;
-        color: #fff;
-        border: 1px solid #3a3a3a;
-        border-radius: 8px;
-        padding: 6px;
-      }
-      .subrow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-      .hint {
-        font-size: 11px;
-        color: #9aa0a6;
-      }
-      #spinner {
-        display: none;
-        margin-left: 6px;
-      }
-
-      .openai-controls {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        width: 240px;
-      }
-      .openai-controls label {
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .openai-controls input[type="password"],
-      .openai-controls select {
-        width: 100%;
-        font-size: 12px;
-        padding: 6px;
-        border-radius: 6px;
-        border: 1px solid #444;
-        background: #111;
-        color: #fff;
-      }
-    </style>
-  </head>
-  <body>
-    <!-- Controls -->
+  <title>Ingrid TTS Control</title>
+  <style>
+    body {
+      background-color: #1e1e1e;
+      color: #ffffff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      width: 560px; /* ~2x wider */
+      min-height: 340px;
+    }
+    button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      margin: 10px;
+      padding: 10px;
+    }
+    button img {
+      width: 24px;
+      height: 24px;
+    }
+    .top-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .spacer { flex: 1 1 auto; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .hint { font-size: 12px; opacity: .7; }
+    #log { margin-top: 8px; max-height: 200px; overflow: auto; background: #121212; border: 1px solid #2a2a2a; padding: 8px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="top-controls">
     <div class="row">
-      <button id="playBtn" class="btn" title="Play current chapter">
-        <img src="play_icon.png" alt="Play">
-      </button>
-      <button id="pauseBtn" class="btn" title="Pause">
-        <img src="pause_icon.png" alt="Pause">
-      </button>
-      <button id="replayBtn" class="btn" title="Replay 10s">
-        <img src="replay_icon.png" alt="Replay 10s">
-      </button>
-      <div id="spinner" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg" stroke="#fff">
-          <g fill="none" fill-rule="evenodd">
-            <g transform="translate(1 1)" stroke-width="2">
-              <circle stroke-opacity=".2" cx="18" cy="18" r="18"/>
-              <path d="M36 18c0-9.94-8.06-18-18-18">
-                <animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="1s" repeatCount="indefinite"/>
-              </path>
-            </g>
-          </g>
-        </svg>
-      </div>
+      <button id="playBtn" title="Play"><img src="play_icon.png" alt="Play"></button>
+      <button id="pauseBtn" title="Pause"><img src="pause_icon.png" alt="Pause"></button>
+      <button id="replayBtn" title="Replay 10s"><img src="replay_icon.png" alt="Replay 10s"></button>
     </div>
+    <div class="spacer"></div>
+    <div class="hint">Shortcuts: Ctrl+Shift+Space · Ctrl+Shift+Left/Right</div>
+  </div>
 
-    <!-- Speed -->
-    <div class="row" style="flex-direction: column; align-items: stretch;">
-      <div class="subrow">
-        <label for="rate">Speed <span id="rateLabel" class="hint">1.0x</span></label>
-      </div>
-      <input id="rate" type="range" min="0.7" max="2.0" step="0.1" value="1.0" />
-    </div>
-
-    <!-- Voice -->
-    <div class="row" style="flex-direction: column; align-items: stretch;">
-      <label for="voices">Voice</label>
-      <select id="voices"></select>
-      <div class="subrow">
-        <label class="hint" for="localOnly">
-          <input type="checkbox" id="localOnly" checked />
-          Prefer local (offline) voices
-        </label>
-      </div>
-    </div>
-
-    <!-- OpenAI Controls -->
-    <div class="openai-controls">
-      <label>
-        <input id="useOpenAi" type="checkbox" />
-        Use OpenAI TTS (online)
-      </label>
-      <input id="apiKey" type="password" placeholder="OpenAI API key">
+  <!-- OpenAI Mode -->
+  <div class="panel">
+    <label>
+      <input type="checkbox" id="useOpenAi">
+      Use OpenAI TTS (online)
+    </label>
+    <div class="row">
+      <input type="password" id="apiKey" placeholder="OpenAI API key">
       <select id="oaVoice">
         <option value="alloy">alloy</option>
         <option value="verse">verse</option>
         <option value="aria">aria</option>
       </select>
     </div>
+  </div>
 
-    <script src="popup.js"></script>
-  </body>
+  <!-- Local Voice Settings -->
+  <div class="panel">
+    <div class="row">
+      <label>Speed: <span id="rateVal">1.0×</span></label>
+      <input type="range" id="rateInput" min="0.5" max="2.0" step="0.1" value="1.0">
+    </div>
+    <div class="row">
+      <label>Voice:</label>
+      <select id="voiceSelect"></select>
+      <label>
+        <input type="checkbox" id="preferLocalCheckbox" checked>
+        Prefer local voices
+      </label>
+    </div>
+  </div>
+
+  <!-- Status & Log -->
+  <div id="spinner" style="display:none; margin-top: 6px;">
+    <svg width="24" height="24" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg" stroke="#fff">
+      <g fill="none" fill-rule="evenodd">
+        <g transform="translate(1 1)" stroke-width="2">
+          <circle stroke-opacity=".2" cx="18" cy="18" r="18"/>
+          <path d="M36 18c0-9.94-8.06-18-18-18">
+            <animateTransform 
+              attributeName="transform" 
+              type="rotate" 
+              from="0 18 18" 
+              to="360 18 18" 
+              dur="1s" 
+              repeatCount="indefinite"/>
+          </path>
+        </g>
+      </g>
+    </svg>
+  </div>
+  <div id="statusText"></div>
+  <div id="log" style="display:none"></div>
+
+  <script src="popup.js"></script>
+</body>
 </html>
