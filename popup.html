@@ -66,6 +66,29 @@
         display: none;
         margin-left: 6px;
       }
+
+      .openai-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        width: 240px;
+      }
+      .openai-controls label {
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .openai-controls input[type="password"],
+      .openai-controls select {
+        width: 100%;
+        font-size: 12px;
+        padding: 6px;
+        border-radius: 6px;
+        border: 1px solid #444;
+        background: #111;
+        color: #fff;
+      }
     </style>
   </head>
   <body>
@@ -112,6 +135,20 @@
           Prefer local (offline) voices
         </label>
       </div>
+    </div>
+
+    <!-- OpenAI Controls -->
+    <div class="openai-controls">
+      <label>
+        <input id="useOpenAi" type="checkbox" />
+        Use OpenAI TTS (online)
+      </label>
+      <input id="apiKey" type="password" placeholder="OpenAI API key">
+      <select id="oaVoice">
+        <option value="alloy">alloy</option>
+        <option value="verse">verse</option>
+        <option value="aria">aria</option>
+      </select>
     </div>
 
     <script src="popup.js"></script>

@@ -44,13 +44,19 @@ pauseBtn?.addEventListener('click', () => {
 });
 
 // Load settings on popup open
-chrome.storage.sync.get(['rate', 'voice', 'preferLocal'], (settings) => {
+chrome.storage.sync.get(['rate', 'voice', 'preferLocal','useOpenAi','openai_api_key','openai_voice'], (settings) => {
   const r = document.getElementById('rateInput');
   const v = document.getElementById('voiceSelect');
   const c = document.getElementById('preferLocalCheckbox');
+  const use = document.getElementById('useOpenAi');
+  const key = document.getElementById('apiKey');
+  const ova = document.getElementById('oaVoice');
   if (r) r.value = settings.rate ?? 1.0;
   if (v) v.value = settings.voice ?? '';
   if (c) c.checked = !!settings.preferLocal;
+  if (use) use.checked = !!settings.useOpenAi;
+  if (key && settings.openai_api_key) key.value = settings.openai_api_key;
+  if (ova && settings.openai_voice) ova.value = settings.openai_voice;
 });
 
 // Save settings when changed
@@ -58,13 +64,21 @@ const saveSettings = () => {
   const r = document.getElementById('rateInput');
   const v = document.getElementById('voiceSelect');
   const c = document.getElementById('preferLocalCheckbox');
+  const use = document.getElementById('useOpenAi');
+  const key = document.getElementById('apiKey');
+  const ova = document.getElementById('oaVoice');
   const rate = r ? parseFloat(r.value) : undefined;
   const voice = v ? v.value : undefined;
   const preferLocal = c ? c.checked : undefined;
-
-  chrome.storage.sync.set({ rate, voice, preferLocal });
+  const useOpenAi = use ? use.checked : undefined;
+  const openai_api_key = key ? key.value.trim() : undefined;
+  const openai_voice = ova ? ova.value : undefined;
+  chrome.storage.sync.set({ rate, voice, preferLocal, useOpenAi, openai_api_key, openai_voice });
 };
 
 document.getElementById('rateInput')?.addEventListener('change', saveSettings);
 document.getElementById('voiceSelect')?.addEventListener('change', saveSettings);
 document.getElementById('preferLocalCheckbox')?.addEventListener('change', saveSettings);
+document.getElementById('useOpenAi')?.addEventListener('change', saveSettings);
+document.getElementById('apiKey')?.addEventListener('input', saveSettings);
+document.getElementById('oaVoice')?.addEventListener('change', saveSettings);

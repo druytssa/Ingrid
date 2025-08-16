@@ -263,7 +263,62 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'CH_PAUSE')  { TTS.pause(); }
   if (msg.type === 'CH_REPLAY') { TTS.rewind10(); }
   if (msg.type === 'CH_SKIP')   { TTS.skip10(); }
-  if (msg.type === 'KBD_TOGGLE'){ if (speechSynthesis.paused) TTS.resume(); else TTS.pause(); }
-  if (msg.type === 'KBD_REPLAY'){ TTS.rewind10(); }
-  if (msg.type === 'KBD_SKIP')  { TTS.skip10(); }
+});
+
+// --- OpenAI TTS audio player messages ---
+let oaAudio = null;
+let oaIdx = null;
+function ensureOaAudio() {
+  if (oaAudio) return oaAudio;
+  oaAudio = new Audio();
+  oaAudio.preload = 'auto';
+  oaAudio.addEventListener('ended', () => {
+    if (oaIdx != null) sendChapterState(oaIdx, 'stopped');
+    showAiToast('Finished');
+    updateOaProgress(100);
+  });
+  oaAudio.addEventListener('timeupdate', () => {
+    updateOaProgress((oaAudio.currentTime / Math.max(1, oaAudio.duration)) * 100);
+  });
+  return oaAudio;
+}
+
+function oaPlayUrl(idx, url) {
+  oaIdx = idx;
+  const a = ensureOaAudio();
+  a.src = url;
+  a.currentTime = 0;
+  a.play().catch(()=>{});
+  sendChapterState(idx, 'playing');
+  showAiToast('Playing');
+}
+function oaPause() {
+  if (!oaAudio) return;
+  oaAudio.pause();
+  if (oaIdx != null) sendChapterState(oaIdx, 'paused');
+  showAiToast('Paused');
+}
+function oaSeekBy(sec) {
+  const a = ensureOaAudio();
+  if (!a.duration || Number.isNaN(a.duration)) return;
+  a.currentTime = Math.max(0, Math.min(a.duration - 0.25, (a.currentTime || 0) + sec));
+  if (sec > 0) showAiToast('Skipped 10s'); else showAiToast('Rewound 10s');
+}
+function updateOaProgress(percent) {
+  if (oaIdx == null) return;
+  const target = document.querySelector(`.ai-tts-chapter[data-chapter-index="${oaIdx}"]`);
+  const bar = target?.querySelector('.ai-tts-progress__bar');
+  if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+function sendChapterState(idx, state) {
+  chrome.runtime.sendMessage({ type: 'CH_ACTIVE', idx, state });
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'OA_PLAY_URL') {
+    oaPlayUrl(msg.idx, msg.url);
+  }
+  if (msg.type === 'OA_PAUSE') { oaPause(); }
+  if (msg.type === 'OA_REPLAY') { oaSeekBy(-(msg.seconds ?? 10)); }
+  if (msg.type === 'OA_SKIP')   { oaSeekBy( +(msg.seconds ?? 10)); }
 });
