@@ -100,6 +100,10 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'SHOW_TOAST') {
     showAiToast(msg.text || '');
   }
+  if (msg.type === 'GET_SELECTION') {
+    const selection = window.getSelection()?.toString() || '';
+    chrome.runtime.sendMessage({ type: 'SELECTION_TEXT', text: selection });
+  }
 });
 
 let aiToastTimer = null;

@@ -15,6 +15,14 @@ let state = {
   rate: 1.0
 };
 
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "read-selection",
+    title: "Read selection with Ingrid",
+    contexts: ["selection"]
+  });
+});
+
 chrome.runtime.onMessage.addListener(async (msg, sender) => {
   if (sender.tab?.id) state.tabId = sender.tab.id;
 
@@ -64,6 +72,12 @@ chrome.commands.onCommand.addListener((command) => {
     case "skip-10s":
       skipSeconds(10, tabId);
       break;
+  }
+});
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "read-selection" && info.selectionText) {
+    playText(info.selectionText, tab.id);
   }
 });
 
@@ -211,4 +225,10 @@ function sendProgress(tabId, explicitPercent) {
     ? explicitPercent
     : Math.round(Math.min(100, Math.max(0, (absoluteWord / state.tokens.length) * 100)));
   chrome.tabs.sendMessage(tabId, { type: 'CH_PROGRESS', idx: state.currentIdx, percent: pct });
+}
+
+function playText(text, tabId) {
+  // Reuse existing playback logic
+  state.currentIdx = null; // No chapter index for ad-hoc text
+  startPlayback(text, 0, tabId);
 }
