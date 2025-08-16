@@ -57,41 +57,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.tab?.id) state.tabId = sender.tab.id;
   log('rx.message', { type: msg.type, from: sender?.url ? 'content' : 'popup/bg' });
 
-  // Handle popup settings messages
-  if (msg.type === 'SET_RATE') {
-    log('popup.set_rate', { rate: msg.rate });
-    // Optionally store or forward to content
+  // Relay TTS commands to content.js
+  if (state.tabId && (
+    msg.type === 'CH_PLAY' ||
+    msg.type === 'CH_PAUSE' ||
+    msg.type === 'CH_REPLAY' ||
+    msg.type === 'CH_SKIP' ||
+    msg.type === 'CH_BOOKMARK' ||
+    msg.type === 'SET_RATE' ||
+    msg.type === 'SET_VOICE' ||
+    msg.type === 'PREF_LOCAL'
+  )) {
     chrome.tabs.sendMessage(state.tabId, msg);
     sendResponse?.({ ok: true });
-    return true;
-  }
-  if (msg.type === 'SET_VOICE') {
-    log('popup.set_voice', { voiceName: msg.voiceName });
-    chrome.tabs.sendMessage(state.tabId, msg);
-    sendResponse?.({ ok: true });
-    return true;
-  }
-  if (msg.type === 'PREF_LOCAL') {
-    log('popup.pref_local', { value: msg.value });
-    chrome.tabs.sendMessage(state.tabId, msg);
-    sendResponse?.({ ok: true });
-    return true;
-  }
-  if (msg.type === 'play-stored-audio') {
-    log('popup.play_stored_audio', {});
-    // Simulate playback (or route to content)
-    chrome.tabs.sendMessage(state.tabId, { type: 'KBD_TOGGLE' }, () => {
-      sendResponse?.({ ok: true, status: 'ok' });
-    });
-    return true;
-  }
-
-  // Relay simple messages to content.js
-  if (state.tabId && /^CH_|^SET_|^PREF_/.test(msg.type)) {
-    chrome.tabs.sendMessage(state.tabId, msg);
-    // acknowledge to avoid popup "lastError"
-    sendResponse?.({ ok: true });
-    log('tx.to-content', { type: msg.type, tabId: state.tabId });
     return true;
   }
 

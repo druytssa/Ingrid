@@ -278,13 +278,7 @@ function updateOaProgress(percent) {
   if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
 }
 
-// ===== Local TTS engine logging hooks (add inside your TTS implementation) =====
-// Example integration points (call log(...) where appropriate in your existing local TTS code):
-// - log('tts.local.start', { idx, rate: TTS_SETTINGS.rate, voice: TTS_SETTINGS.voiceName });
-// - log('tts.local.boundary', { word: startWordIdx + wordIndex });
-// - log('tts.local.pause', {});
-// - log('tts.local.resume', {});
-// - log('tts.local.end', {});
+// ===== Local TTS engine in CONTENT SCRIPT =====
 const TTS = (() => {
   let utterance = null;
   let fullText = '';
@@ -320,8 +314,8 @@ const TTS = (() => {
     const speakText = fullText.slice(startChar);
 
     utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.onstart = () => { sendActive('playing'); log('tts.local.start', { idx: currentChapterIdx }); };
-    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); log('tts.local.end', { idx: currentChapterIdx }); };
+    utterance.onstart = () => sendActive('playing');
+    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); };
     utterance.onerror = () => { sendActive('stopped'); sendProgress(100); };
 
     let lastBoundary = performance.now();
@@ -339,7 +333,6 @@ const TTS = (() => {
         sendWordHighlight(startWordIdx + wordIndex);
         wordIndex++;
         sendProgress();
-        log('tts.local.boundary', { word: startWordIdx + wordIndex });
       }
     };
 
@@ -348,7 +341,7 @@ const TTS = (() => {
     sendProgress();
   }
 
-  function pause() { speechSynthesis.pause(); isPaused = true; sendActive('paused'); showToast('Paused'); log('tts.local.pause', {}); }
+  function pause() { speechSynthesis.pause(); isPaused = true; sendActive('paused'); showToast('Paused'); }
   function resume() { speechSynthesis.resume(); isPaused = false; sendActive('playing'); showToast('Playing'); }
 
   function stop() { if (utterance) { speechSynthesis.cancel(); } utterance = null; isPaused = false; }
@@ -391,7 +384,35 @@ const TTS = (() => {
       : Math.round(((startWordIdx + wordIndex) / Math.max(1, tokens.length)) * 100);
     chrome.runtime.sendMessage({ type: 'CH_PROGRESS', idx: currentChapterIdx, percent: pct });
   }
-
+  function sendWordHighlight(idx) {
+    const chapter = document.querySelector(`.ai-tts-chapter[data-chapter-index="${currentChapterIdx}"]`);
+    if (!chapter) return;
+    const words = chapter.querySelectorAll('h1, h2, h3, p');
+    words.forEach((w, i) => {
+      if (i === idx) {
+        w.classList.add('highlight');
+        w.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        w.classList.remove('highlight');
+      }
+    });
+  }
+  function showToast(text) {
+    const root = document.body;
+    let toast = document.getElementById('ai-tts-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'ai-tts-toast';
+      toast.className = 'ai-tts-toast';
+      toast.setAttribute('role', 'status');
+      toast.setAttribute('aria-live', 'polite');
+      root.appendChild(toast);
+    }
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(aiToastTimer);
+    aiToastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+  }
   return {
     speakChapter, pause, resume,
     rewind10: () => { jumpSeconds(10, false); showToast('Rewound 10s'); },
@@ -399,10 +420,13 @@ const TTS = (() => {
   };
 })();
 
-// Listen for messages from background/popup and drive local TTS
+// Listen for messages from background.js and drive local TTS
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'CH_PLAY')   { TTS.speakChapter(msg.idx, msg.text); }
   if (msg.type === 'CH_PAUSE')  { TTS.pause(); }
   if (msg.type === 'CH_REPLAY') { TTS.rewind10(); }
   if (msg.type === 'CH_SKIP')   { TTS.skip10(); }
+  if (msg.type === 'KBD_TOGGLE'){ if (speechSynthesis.paused) TTS.resume(); else TTS.pause(); }
+  if (msg.type === 'KBD_REPLAY'){ TTS.rewind10(); }
+  if (msg.type === 'KBD_SKIP')  { TTS.skip10(); }
 });
