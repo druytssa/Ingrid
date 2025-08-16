@@ -15,44 +15,6 @@ chrome.runtime.onInstalled.addListener(() => {
   } catch {}
 });
 
-// Handle context menu click
-chrome.contextMenus.onClicked?.addListener(async (info, tab) => {
-  if (info.menuItemId !== 'ingrid-read-selection' || !tab?.id) return;
-  state.tabId = tab.id;
-  try {
-    // get the selected text in the page without injecting our content script globally
-    const [{ result: selectionText } = {}] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => (window.getSelection?.().toString?.() || '').trim()
-    });
-    const text = (selectionText || info.selectionText || '').trim();
-    log('ctxmenu.selection', { length: text.length });
-    if (!text) {
-      chrome.tabs.sendMessage(tab.id, { type: 'SHOW_TOAST', text: 'No text selected' });
-      return;
-    }
-    const { useOpenAi } = await getSettings();
-    if (useOpenAi) {
-      chrome.runtime.sendMessage({ type: 'OA_PLAY', idx: -1, text });
-    } else {
-      chrome.runtime.sendMessage({ type: 'CH_PLAY', idx: -1, text });
-    }
-  } catch (e) {
-    log('ctxmenu.error', { message: String(e?.message || e) });
-  }
-});
-
-// --- tiny logger ---
-function log(evt, meta = {}) {
-  const entry = { ts: Date.now(), ctx: 'bg', evt, meta };
-  chrome.storage.local.get(['ingridLog'], ({ ingridLog = [] }) => {
-    ingridLog.push(entry);
-    if (ingridLog.length > 500) ingridLog.splice(0, ingridLog.length - 500);
-    chrome.storage.local.set({ ingridLog });
-    chrome.runtime.sendMessage({ type: 'LOG_EVENT', entry });
-  });
-}
-
 // --- Relay helpers (avoid sending to non-ChatGPT tabs) ---
 async function getActiveChatTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -60,14 +22,23 @@ async function getActiveChatTab() {
   if (!t?.id || !/^https:\/\/chat\.openai\.com\b/.test(t.url || '')) return null;
   return t;
 }
+
 async function relayToActiveTab(payload) {
   try {
     const t = await getActiveChatTab();
-    if (!t) return;
+    if (!t) {
+      log('relay.error', { reason: 'no-active-chat-tab' });
+      return false;
+    }
     chrome.tabs.sendMessage(t.id, payload);
-  } catch {}
+    return true;
+  } catch (e) {
+    log('relay.error', { error: String(e?.message || e) });
+    return false;
+  }
 }
 
+// --- Command handling ---
 chrome.commands.onCommand.addListener((command) => {
   switch (command) {
     case 'play-pause':      // must match manifest.json
@@ -82,28 +53,81 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
-chrome.runtime.onMessage.addListener(async (msg, sender) => {
+// --- Message handling ---
+chrome.runtime.onMessage.addListener(async (msg, sender, sendResponse) => {
+  // Store tabId from content script
+  if (sender.tab?.id) state.tabId = sender.tab.id;
+  log('message.received', { type: msg.type });
+
   // Map popup/content events to the page content engine
-  if (msg.type === 'CH_PLAY')    relayToActiveTab({ type: 'CH_PLAY', idx: msg.idx, text: msg.text });
-  if (msg.type === 'CH_TOGGLE')  relayToActiveTab({ type: 'CH_TOGGLE' });
-  if (msg.type === 'CH_PAUSE')   relayToActiveTab({ type: 'CH_PAUSE' });
-  if (msg.type === 'CH_REPLAY')  relayToActiveTab({ type: 'CH_REPLAY', seconds: msg.seconds ?? 10 });
-  if (msg.type === 'CH_SKIP')    relayToActiveTab({ type: 'CH_SKIP', seconds: msg.seconds ?? 10 });
-  if (msg.type === 'SET_RATE')   relayToActiveTab({ type: 'SET_RATE', rate: msg.rate });
-  if (msg.type === 'SET_VOICE')  relayToActiveTab({ type: 'SET_VOICE', voiceName: msg.voiceName });
-  if (msg.type === 'PREF_LOCAL') relayToActiveTab({ type: 'PREF_LOCAL', value: !!msg.value });
+  if (msg.type === 'CH_PLAY')    await relayToActiveTab({ type: 'CH_PLAY', idx: msg.idx, text: msg.text });
+  if (msg.type === 'CH_TOGGLE')  await relayToActiveTab({ type: 'CH_TOGGLE' });
+  if (msg.type === 'CH_PAUSE')   await relayToActiveTab({ type: 'CH_PAUSE' });
+  if (msg.type === 'CH_REPLAY')  await relayToActiveTab({ type: 'CH_REPLAY', seconds: msg.seconds ?? 10 });
+  if (msg.type === 'CH_SKIP')    await relayToActiveTab({ type: 'CH_SKIP', seconds: msg.seconds ?? 10 });
+  if (msg.type === 'SET_RATE')   await relayToActiveTab({ type: 'SET_RATE', rate: msg.rate });
+  if (msg.type === 'SET_VOICE')  await relayToActiveTab({ type: 'SET_VOICE', voiceName: msg.voiceName });
 
   // Back-compat with earlier popup button:
-  if (msg.type === 'play-stored-audio') relayToActiveTab({ type: 'CH_TOGGLE' });
+  if (msg.type === 'play-stored-audio') await relayToActiveTab({ type: 'CH_TOGGLE' });
+
+  // OpenAI TTS
+  if (msg.type === 'OA_PLAY' && msg.text) {
+    log('tts.request', { idx: msg.idx, chars: msg.text.length });
+    try {
+      const { useOpenAi, openai_api_key, openai_voice } = await getSettings();
+      if (!useOpenAi) {
+        log('tts.error', { reason: 'openai-disabled' });
+        sendResponse?.({ ok: false, error: 'OpenAI TTS is disabled' });
+        return;
+      }
+      if (!openai_api_key) {
+        log('tts.error', { reason: 'missing-api-key' });
+        sendResponse?.({ ok: false, error: 'Missing OpenAI API key' });
+        return;
+      }
+
+      const cacheKey = `${msg.idx}|${hash(msg.text)}|${openai_voice||'alloy'}`;
+      let blob = state.blobs.get(cacheKey);
+      if (!blob) {
+        log('tts.fetch.start');
+        blob = await openAiTtsToBlob(msg.text, openai_api_key, openai_voice || 'alloy');
+        log('tts.fetch.complete', { size: blob.size });
+        state.blobs.set(cacheKey, blob);
+      }
+      const url = URL.createObjectURL(blob);
+      await relayToActiveTab({ type: 'OA_PLAY_URL', idx: msg.idx, url });
+      sendResponse?.({ ok: true });
+    } catch (e) {
+      log('tts.error', { error: String(e?.message || e) });
+      sendResponse?.({ ok: false, error: String(e?.message || e) });
+    }
+  }
+
+  // Send immediate response for other messages
+  if (sendResponse) sendResponse({ ok: true });
+  return true; // keep channel open for async
 });
 
-// --- OpenAI TTS functionality ---
+// --- Logging ---
+function log(evt, meta = {}) {
+  const entry = { ts: Date.now(), ctx: 'bg', evt, meta };
+  chrome.storage.local.get(['ingridLog'], ({ ingridLog = [] }) => {
+    ingridLog.push(entry);
+    if (ingridLog.length > 500) ingridLog.splice(0, ingridLog.length - 500);
+    chrome.storage.local.set({ ingridLog });
+    chrome.runtime.sendMessage({ type: 'LOG', text: `[${evt}] ${JSON.stringify(meta)}` });
+  });
+}
+
+// --- Settings ---
 async function getSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(['useOpenAi','openai_api_key','openai_voice'], (s) => resolve(s || {}));
   });
 }
 
+// --- OpenAI TTS ---
 async function openAiTtsToBlob(text, apiKey, voice) {
   const resp = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -112,7 +136,7 @@ async function openAiTtsToBlob(text, apiKey, voice) {
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini-tts',
+      model: 'tts-1',
       voice: voice || 'alloy',
       input: text,
       format: 'mp3'
