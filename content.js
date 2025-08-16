@@ -142,3 +142,128 @@ if (document.readyState === 'loading') {
 }
 new MutationObserver(() => prepareChapters())
   .observe(document.body, { childList: true, subtree: true });
+
+// ===== Local TTS engine in CONTENT SCRIPT (works on page, not in SW) =====
+const TTS = (() => {
+  let utterance = null;
+  let fullText = '';
+  let tokens = [];
+  let tokenToCharIdx = [];
+  let startWordIdx = 0;
+  let wordIndex = 0;
+  let isPaused = false;
+  let currentChapterIdx = null;
+  let wpsHeur = 2; // words/sec fallback
+  const deltas = [];
+
+  function tokenize(text) {
+    const parts = text.match(/\S+|\s+/g) || [];
+    const toks = [], map = [];
+    let pos = 0;
+    for (const p of parts) {
+      if (/\s+/.test(p)) { pos += p.length; continue; }
+      toks.push(p); map.push(pos); pos += p.length;
+    }
+    return { toks, map };
+  }
+
+  function speakChapter(idx, text) {
+    stop();
+    currentChapterIdx = idx;
+    fullText = text;
+    const t = tokenize(text);
+    tokens = t.toks; tokenToCharIdx = t.map;
+    startWordIdx = 0; wordIndex = 0; deltas.length = 0;
+
+    const startChar = tokenToCharIdx[startWordIdx] ?? 0;
+    const speakText = fullText.slice(startChar);
+
+    utterance = new SpeechSynthesisUtterance(speakText);
+    utterance.onstart = () => sendActive('playing');
+    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); };
+    utterance.onerror = () => { sendActive('stopped'); sendProgress(100); };
+
+    let lastBoundary = performance.now();
+    utterance.onboundary = (e) => {
+      if (e.name === 'word' || e.charLength > 0) {
+        const now = performance.now();
+        const dt = (now - lastBoundary) / 1000;
+        lastBoundary = now;
+        if (dt > 0 && dt < 2) { // keep sane values
+          deltas.push(dt);
+          if (deltas.length > 40) deltas.shift();
+          const avg = deltas.reduce((a,b)=>a+b,0) / deltas.length;
+          wpsHeur = Math.min(6, Math.max(1, 1/avg));
+        }
+        sendWordHighlight(startWordIdx + wordIndex);
+        wordIndex++;
+        sendProgress();
+      }
+    };
+
+    speechSynthesis.speak(utterance);
+    showToast('Playing');
+    sendProgress();
+  }
+
+  function pause() { speechSynthesis.pause(); isPaused = true; sendActive('paused'); showToast('Paused'); }
+  function resume() { speechSynthesis.resume(); isPaused = false; sendActive('playing'); showToast('Playing'); }
+
+  function stop() { if (utterance) { speechSynthesis.cancel(); } utterance = null; isPaused = false; }
+
+  function jumpSeconds(seconds, forward = false) {
+    if (!tokens.length) return;
+    const deltaWords = Math.max(1, Math.round((seconds * wpsHeur)));
+    const newStart = forward
+      ? Math.min(tokens.length - 1, startWordIdx + wordIndex + deltaWords)
+      : Math.max(0, startWordIdx + wordIndex - deltaWords);
+    restartFrom(newStart);
+  }
+
+  function restartFrom(newWordIndex) {
+    if (!fullText) return;
+    startWordIdx = Math.max(0, Math.min(tokens.length - 1, newWordIndex));
+    wordIndex = 0;
+    const startChar = tokenToCharIdx[startWordIdx] ?? 0;
+    stop();
+    utterance = new SpeechSynthesisUtterance(fullText.slice(startChar));
+    utterance.onstart = () => sendActive('playing');
+    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); };
+    utterance.onerror = () => { sendActive('stopped'); sendProgress(100); };
+    utterance.onboundary = (e) => {
+      if (e.name === 'word' || e.charLength > 0) {
+        sendWordHighlight(startWordIdx + wordIndex);
+        wordIndex++; sendProgress();
+      }
+    };
+    speechSynthesis.speak(utterance);
+  }
+
+  // Messaging to existing UI hooks you already have:
+  function sendActive(state) {
+    chrome.runtime.sendMessage({ type: 'CH_ACTIVE', idx: currentChapterIdx, state });
+  }
+  function sendProgress(explicitPct) {
+    const pct = typeof explicitPct === 'number'
+      ? explicitPct
+      : Math.round(((startWordIdx + wordIndex) / Math.max(1, tokens.length)) * 100);
+    chrome.runtime.sendMessage({ type: 'CH_PROGRESS', idx: currentChapterIdx, percent: pct });
+  }
+
+  return {
+    speakChapter, pause, resume,
+    rewind10: () => { jumpSeconds(10, false); showToast('Rewound 10s'); },
+    skip10:   () => { jumpSeconds(10, true);  showToast('Skipped 10s'); },
+  };
+})();
+
+// Listen for messages from background/popup and drive local TTS
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'CH_PLAY')   { TTS.speakChapter(msg.idx, msg.text); }
+  if (msg.type === 'CH_PAUSE')  { TTS.pause(); }
+  if (msg.type === 'CH_REPLAY') { TTS.rewind10(); }
+  if (msg.type === 'CH_SKIP')   { TTS.skip10(); }
+  if (msg.type === 'KBD_TOGGLE'){ if (speechSynthesis.paused) TTS.resume(); else TTS.pause(); }
+  if (msg.type === 'KBD_REPLAY'){ TTS.rewind10(); }
+  if (msg.type === 'KBD_SKIP')  { TTS.skip10(); }
+});
