@@ -6,8 +6,9 @@
   "permissions": [
     "activeTab",
     "scripting",
-    "storage",
-    "contextMenus"
+    "contextMenus",
+    "downloads",
+    "storage"
   ],
   "host_permissions": [
     "https://api.openai.com/*",

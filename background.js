@@ -4,28 +4,41 @@ let state = { tabId: null, blobs: new Map() };
 
 // Create context menu on install
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: "read-selection-ingrid",
-    title: "Read selection with Ingrid",
-    contexts: ["selection"],
-    documentUrlPatterns: ["https://chat.openai.com/*"]
-  });
+  try {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({
+        id: 'ingrid-read-selection',
+        title: 'Read selection with Ingrid',
+        contexts: ['selection', 'page']
+      });
+    });
+  } catch {}
 });
 
 // Handle context menu click
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === "read-selection-ingrid") {
-    if (!info.selectionText || !info.selectionText.trim()) {
-      chrome.tabs.sendMessage(tab.id, { type: "SHOW_TOAST", text: "No text selected." });
+chrome.contextMenus.onClicked?.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'ingrid-read-selection' || !tab?.id) return;
+  state.tabId = tab.id;
+  try {
+    // get the selected text in the page without injecting our content script globally
+    const [{ result: selectionText } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => (window.getSelection?.().toString?.() || '').trim()
+    });
+    const text = (selectionText || info.selectionText || '').trim();
+    log('ctxmenu.selection', { length: text.length });
+    if (!text) {
+      chrome.tabs.sendMessage(tab.id, { type: 'SHOW_TOAST', text: 'No text selected' });
       return;
     }
-    chrome.storage.sync.get(["useOpenAi"], (s) => {
-      if (s.useOpenAi) {
-        chrome.tabs.sendMessage(tab.id, { type: "OA_PLAY", idx: null, text: info.selectionText });
-      } else {
-        chrome.tabs.sendMessage(tab.id, { type: "CH_PLAY", idx: null, text: info.selectionText });
-      }
-    });
+    const { useOpenAi } = await getSettings();
+    if (useOpenAi) {
+      chrome.runtime.sendMessage({ type: 'OA_PLAY', idx: -1, text });
+    } else {
+      chrome.runtime.sendMessage({ type: 'CH_PLAY', idx: -1, text });
+    }
+  } catch (e) {
+    log('ctxmenu.error', { message: String(e?.message || e) });
   }
 });
 

@@ -11,7 +11,9 @@
         margin: 0; padding: 10px;
         background: var(--bg); color: var(--text);
         font: 13px/1.35 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-        width: 260px;
+        width: 320px;               /* more breathing room */
+        max-height: 540px;           /* keep it compact */
+        overflow: auto;              /* smooth scroll in popup */
       }
   .row { display: flex; align-items: center; gap: 8px; }
   .col { display: flex; flex-direction: column; gap: 8px; }
@@ -22,7 +24,7 @@
         width: 100%; border-radius: 8px; border: 1px solid var(--border);
         background: #0f0f0f; color: var(--text); padding: 6px 8px;
       }
-      .btnbar { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+      .btnbar { display: flex; justify-content: space-evenly; gap: 10px; margin-top: 10px; }
       button {
         background: #0f0f0f; border: 1px solid var(--border);
         border-radius: 10px; padding: 6px 8px; cursor: pointer;

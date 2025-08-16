@@ -271,6 +271,13 @@ function sendChapterState(idx, state) {
   chrome.runtime.sendMessage({ type: 'CH_ACTIVE', idx, state });
 }
 
+function updateOaProgress(percent) {
+  if (oaIdx == null || oaIdx === -1) return; // selection playback has no chapter UI
+  const target = document.querySelector(`.ai-tts-chapter[data-chapter-index="${oaIdx}"]`);
+  const bar = target?.querySelector('.ai-tts-progress__bar');
+  if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
 // ===== Local TTS engine logging hooks (add inside your TTS implementation) =====
 // Example integration points (call log(...) where appropriate in your existing local TTS code):
 // - log('tts.local.start', { idx, rate: TTS_SETTINGS.rate, voice: TTS_SETTINGS.voiceName });

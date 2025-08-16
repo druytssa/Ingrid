@@ -47,12 +47,19 @@ function populateLocalVoices() {
 
   const current = voiceSelect.value;
   voiceSelect.innerHTML = '';
-  voices.forEach(v => {
+  if (voices.length === 0) {
     const opt = document.createElement('option');
-    opt.value = v.name;
-    opt.textContent = `${v.name}${v.localService ? ' (local)' : ''}`;
+    opt.value = '';
+    opt.textContent = '— no local voices detected —';
     voiceSelect.appendChild(opt);
-  });
+  } else {
+    voices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name}${v.localService ? ' (local)' : ''}`;
+      voiceSelect.appendChild(opt);
+    });
+  }
   if (current && [...voiceSelect.options].some(o => o.value === current)) {
     voiceSelect.value = current;
   }
