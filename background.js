@@ -2,6 +2,33 @@
 // It fetches OpenAI TTS audio when requested and relays player commands.
 let state = { tabId: null, blobs: new Map() };
 
+// Create context menu on install
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "read-selection-ingrid",
+    title: "Read selection with Ingrid",
+    contexts: ["selection"],
+    documentUrlPatterns: ["https://chat.openai.com/*"]
+  });
+});
+
+// Handle context menu click
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === "read-selection-ingrid") {
+    if (!info.selectionText || !info.selectionText.trim()) {
+      chrome.tabs.sendMessage(tab.id, { type: "SHOW_TOAST", text: "No text selected." });
+      return;
+    }
+    chrome.storage.sync.get(["useOpenAi"], (s) => {
+      if (s.useOpenAi) {
+        chrome.tabs.sendMessage(tab.id, { type: "OA_PLAY", idx: null, text: info.selectionText });
+      } else {
+        chrome.tabs.sendMessage(tab.id, { type: "CH_PLAY", idx: null, text: info.selectionText });
+      }
+    });
+  }
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.tab?.id) state.tabId = sender.tab.id;
 

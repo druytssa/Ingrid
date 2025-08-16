@@ -322,3 +322,49 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'OA_REPLAY') { oaSeekBy(-(msg.seconds ?? 10)); }
   if (msg.type === 'OA_SKIP')   { oaSeekBy( +(msg.seconds ?? 10)); }
 });
+
+// Persist/apply TTS settings
+let TTS_SETTINGS = {};
+chrome.storage.sync.get(['rate','voice','preferLocal','useOpenAi','openai_api_key','openai_voice'], (s) => {
+  TTS_SETTINGS = s || {};
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync') {
+    chrome.storage.sync.get(['rate','voice','preferLocal','useOpenAi','openai_api_key','openai_voice'], (s) => {
+      TTS_SETTINGS = s || {};
+    });
+  }
+});
+
+// Update chapter button logic to respect mode
+function getChapterText(chapter) {
+  // ...existing code to extract text...
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.ai-tts-play, .ai-tts-pause, .ai-tts-replay');
+  if (!btn) return;
+  const chapter = btn.closest('.ai-tts-chapter');
+  const idx = chapter?.dataset?.chapterIndex;
+  if (btn.classList.contains('ai-tts-play')) {
+    const text = getChapterText(chapter);
+    chrome.storage.sync.get(['useOpenAi'], (s) => {
+      if (s.useOpenAi) {
+        chrome.runtime.sendMessage({ type: 'OA_PLAY', idx, text });
+      } else {
+        chrome.runtime.sendMessage({ type: 'CH_PLAY', idx, text });
+      }
+    });
+  }
+  if (btn.classList.contains('ai-tts-pause')) {
+    chrome.storage.sync.get(['useOpenAi'], (s) => {
+      chrome.runtime.sendMessage(s.useOpenAi ? { type: 'OA_PAUSE' } : { type: 'CH_PAUSE', idx });
+    });
+  }
+  if (btn.classList.contains('ai-tts-replay')) {
+    chrome.storage.sync.get(['useOpenAi'], (s) => {
+      const msg = { idx, seconds: 10 };
+      chrome.runtime.sendMessage(s.useOpenAi ? { type:'OA_REPLAY', ...msg } : { type:'CH_REPLAY', ...msg });
+    });
+  }
+});

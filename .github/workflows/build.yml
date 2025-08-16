@@ -1,0 +1,21 @@
+name: Build and Zip Extension
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Zip extension files
+        run: |
+          zip -r ingrid-${{ github.sha }}.zip manifest.json background.js content.js content.css popup.html popup.js icon.png pause_icon.png play_icon.png
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ingrid-${{ github.sha }}.zip
+          path: ingrid-${{ github.sha }}.zip
