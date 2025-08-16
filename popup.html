@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Juniper TTS Player</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        background-color: #1e1e1e;
+        color: #ffffff;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 280px;
+        box-sizing: border-box;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .btn {
+        background: #2a2a2a;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        cursor: pointer;
+        padding: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 120ms ease, border-color 120ms ease, transform 60ms ease;
+      }
+      .btn:hover { background: #333; border-color: #555; }
+      .btn:active { transform: translateY(1px); }
+      .btn img { width: 22px; height: 22px; display: block; }
+      .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+      label {
+        font-size: 12px;
+        color: #cfcfcf;
+        display: block;
+        margin-bottom: 4px;
+      }
+      select, input[type="range"] {
+        width: 100%;
+        background: #2a2a2a;
+        color: #fff;
+        border: 1px solid #3a3a3a;
+        border-radius: 8px;
+        padding: 6px;
+      }
+      .subrow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .hint {
+        font-size: 11px;
+        color: #9aa0a6;
+      }
+      #spinner {
+        display: none;
+        margin-left: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Controls -->
+    <div class="row">
+      <button id="playBtn" class="btn" title="Play current chapter">
+        <img src="play_icon.png" alt="Play">
+      </button>
+      <button id="pauseBtn" class="btn" title="Pause">
+        <img src="pause_icon.png" alt="Pause">
+      </button>
+      <button id="replayBtn" class="btn" title="Replay 10s">
+        <img src="replay_icon.png" alt="Replay 10s">
+      </button>
+      <div id="spinner" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 38 38" xmlns="http://www.w3.org/2000/svg" stroke="#fff">
+          <g fill="none" fill-rule="evenodd">
+            <g transform="translate(1 1)" stroke-width="2">
+              <circle stroke-opacity=".2" cx="18" cy="18" r="18"/>
+              <path d="M36 18c0-9.94-8.06-18-18-18">
+                <animateTransform attributeName="transform" type="rotate" from="0 18 18" to="360 18 18" dur="1s" repeatCount="indefinite"/>
+              </path>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Speed -->
+    <div class="row" style="flex-direction: column; align-items: stretch;">
+      <div class="subrow">
+        <label for="rate">Speed <span id="rateLabel" class="hint">1.0x</span></label>
+      </div>
+      <input id="rate" type="range" min="0.7" max="2.0" step="0.1" value="1.0" />
+    </div>
+
+    <!-- Voice -->
+    <div class="row" style="flex-direction: column; align-items: stretch;">
+      <label for="voices">Voice</label>
+      <select id="voices"></select>
+      <div class="subrow">
+        <label class="hint" for="localOnly">
+          <input type="checkbox" id="localOnly" checked />
+          Prefer local (offline) voices
+        </label>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
