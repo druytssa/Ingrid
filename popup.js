@@ -1,4 +1,3 @@
-
 // --- Element refs (guarded) ---
 const spinner = document.getElementById('spinner');
 const playBtn = document.getElementById('playBtn');
@@ -141,4 +140,52 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'audio-ready') {
     statusText.textContent = 'Audio ready 🎧';
   }
+  if (message.type === 'LOG_EVENT') {
+    appendLog(message.entry);
+  }
 });
+
+// ---- Log UI ----
+const logView = document.getElementById('logView');
+const logRefreshBtn = document.getElementById('logRefresh');
+const logCopyBtn = document.getElementById('logCopy');
+const logClearBtn = document.getElementById('logClear');
+
+function fmtTs(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString(undefined, { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3,'0');
+}
+function renderLine(e) {
+  const meta = e.meta ? ' ' + JSON.stringify(e.meta) : '';
+  return `[${fmtTs(e.ts)}] ${e.ctx.toUpperCase()} ${e.evt}${meta}`;
+}
+function appendLog(entry) {
+  if (!logView) return;
+  const line = document.createElement('div');
+  line.textContent = renderLine(entry);
+  logView.appendChild(line);
+  logView.scrollTop = logView.scrollHeight;
+}
+function loadLog() {
+  if (!logView) return;
+  chrome.storage.local.get(['ingridLog'], ({ ingridLog = [] }) => {
+    logView.innerHTML = '';
+    ingridLog.slice(-500).forEach(appendLog);
+  });
+}
+logRefreshBtn?.addEventListener('click', loadLog);
+logClearBtn?.addEventListener('click', () => {
+  chrome.storage.local.set({ ingridLog: [] }, loadLog);
+});
+logCopyBtn?.addEventListener('click', async () => {
+  chrome.storage.local.get(['ingridLog'], ({ ingridLog = [] }) => {
+    const text = ingridLog.map(renderLine).join('\n');
+    navigator.clipboard?.writeText(text).then(()=> {
+      statusText.textContent = 'Log copied to clipboard';
+      setTimeout(()=> statusText.textContent = '', 1200);
+    });
+  });
+});
+
+// Initial load
+loadLog();

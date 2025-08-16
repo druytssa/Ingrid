@@ -92,6 +92,17 @@
       </svg>
     </div>
     <div id="statusText" aria-live="polite"></div>
+    <div class="panel col" style="margin-top:10px">
+      <div class="row" style="justify-content:space-between">
+        <label>Log</label>
+        <div class="row" style="gap:6px">
+          <button id="logRefresh" title="Refresh">Refresh</button>
+          <button id="logCopy" title="Copy">Copy</button>
+          <button id="logClear" title="Clear">Clear</button>
+        </div>
+      </div>
+      <div id="logView" style="max-height:160px; overflow:auto; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:11px; background:#0e0e0e; border:1px solid #2a2a2a; border-radius:8px; padding:6px;"></div>
+    </div>
 
     <script src="popup.js"></script>
   </body>

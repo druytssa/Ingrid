@@ -143,7 +143,141 @@ if (document.readyState === 'loading') {
 new MutationObserver(() => prepareChapters())
   .observe(document.body, { childList: true, subtree: true });
 
-// ===== Local TTS engine in CONTENT SCRIPT (works on page, not in SW) =====
+// --- tiny logger (content side) ---
+function log(evt, meta = {}) {
+  const entry = { ts: Date.now(), ctx: 'content', evt, meta };
+  chrome.storage.local.get(['ingridLog'], ({ ingridLog = [] }) => {
+    ingridLog.push(entry);
+    if (ingridLog.length > 500) ingridLog.splice(0, ingridLog.length - 500);
+    chrome.storage.local.set({ ingridLog });
+    chrome.runtime.sendMessage({ type: 'LOG_EVENT', entry });
+  });
+}
+
+chrome.runtime.onMessage.addListener((msg) => {
+  log('rx.message', { type: msg.type });
+  if (msg.type === 'CH_ACTIVE') {
+    document.querySelectorAll('.ai-tts-chapter.active').forEach(el => el.classList.remove('active'));
+    const target = document.querySelector(`.ai-tts-chapter[data-chapter-index="${msg.idx}"]`);
+    if (target) {
+      target.classList.add('active');
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const bar = target.querySelector('.ai-tts-controls');
+      if (bar) {
+        const playBtn = bar.querySelector('.ai-tts-play');
+        const pauseBtn = bar.querySelector('.ai-tts-pause');
+        const replayBtn = bar.querySelector('.ai-tts-replay');
+        if (playBtn) playBtn.toggleAttribute('disabled', msg.state === 'playing');
+        if (pauseBtn) pauseBtn.toggleAttribute('disabled', msg.state !== 'playing');
+        if (replayBtn) replayBtn.toggleAttribute('disabled', msg.state !== 'playing');
+      }
+    }
+  }
+  if (msg.type === 'CH_PROGRESS') {
+    const target = document.querySelector(`.ai-tts-chapter[data-chapter-index="${msg.idx}"]`);
+    if (target) {
+      const bar = target.querySelector('.ai-tts-progress__bar');
+      if (bar) bar.style.width = `${Math.max(0, Math.min(100, msg.percent || 0))}%`;
+    }
+  }
+  if (msg.type === 'SHOW_TOAST') {
+    showAiToast(msg.text || '');
+  }
+  if (msg.type === 'GET_SELECTION') {
+    const selection = window.getSelection()?.toString() || '';
+    chrome.runtime.sendMessage({ type: 'SELECTION_TEXT', text: selection });
+  }
+});
+
+let aiToastTimer = null;
+function showAiToast(text) {
+  const root = document.body;
+  let toast = document.getElementById('ai-tts-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'ai-tts-toast';
+    toast.className = 'ai-tts-toast';
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    root.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.classList.add('show');
+  clearTimeout(aiToastTimer);
+  aiToastTimer = setTimeout(() => toast.classList.remove('show'), 1800);
+}
+const style = document.createElement('style');
+style.textContent = `
+.ai-tts-chapter { position: relative; padding-top: 0.5rem; }
+.ai-tts-chapter.active { outline: 3px solid rgba(255, 239, 159, 0.7); outline-offset: 6px; }
+.ai-tts-controls { display: inline-flex; gap: 6px; align-items: center;
+  position: sticky; top: 0; background: var(--bg, #fff); padding: 6px 8px; border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08); z-index: 10; }
+.ai-tts-controls button { cursor: pointer; font-size: 14px; padding: 4px 8px; }
+`;
+document.documentElement.appendChild(style);
+
+const ready = () => prepareChapters();
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', ready);
+} else {
+  ready();
+}
+new MutationObserver(() => prepareChapters())
+  .observe(document.body, { childList: true, subtree: true });
+
+// --- Simple inline OpenAI audio player (chapter-level progress) ---
+let oaAudio = null;
+let oaIdx = null;
+function ensureOaAudio() {
+  if (oaAudio) return oaAudio;
+  oaAudio = new Audio();
+  oaAudio.preload = 'auto';
+  oaAudio.addEventListener('ended', () => {
+    if (oaIdx != null) sendChapterState(oaIdx, 'stopped');
+    showAiToast('Finished');
+    updateOaProgress(100);
+    log('oa.audio.ended', { idx: oaIdx });
+  });
+  oaAudio.addEventListener('timeupdate', () => {
+    updateOaProgress((oaAudio.currentTime / Math.max(1, oaAudio.duration)) * 100);
+  });
+  oaAudio.addEventListener('play', () => log('oa.audio.play', { idx: oaIdx }));
+  oaAudio.addEventListener('pause', () => log('oa.audio.pause', { idx: oaIdx }));
+  oaAudio.addEventListener('error', () => log('oa.audio.error', { idx: oaIdx, code: oaAudio.error?.code }));
+  return oaAudio;
+}
+
+function oaPlayUrl(idx, url) {
+  oaIdx = idx;
+  const a = ensureOaAudio();
+  a.src = url;
+  a.currentTime = 0;
+  a.play().catch(()=>{});
+  sendChapterState(idx, 'playing');
+  showAiToast('Playing');
+  log('oa.audio.start', { idx, urlLen: url.length });
+}
+
+function oaSeekBy(sec) {
+  const a = ensureOaAudio();
+  if (!a.duration || Number.isNaN(a.duration)) return;
+  a.currentTime = Math.max(0, Math.min(a.duration - 0.25, (a.currentTime || 0) + sec));
+  if (sec > 0) showAiToast('Skipped 10s'); else showAiToast('Rewound 10s');
+  log('oa.audio.seek', { by: sec, now: a.currentTime });
+}
+
+function sendChapterState(idx, state) {
+  chrome.runtime.sendMessage({ type: 'CH_ACTIVE', idx, state });
+}
+
+// ===== Local TTS engine logging hooks (add inside your TTS implementation) =====
+// Example integration points (call log(...) where appropriate in your existing local TTS code):
+// - log('tts.local.start', { idx, rate: TTS_SETTINGS.rate, voice: TTS_SETTINGS.voiceName });
+// - log('tts.local.boundary', { word: startWordIdx + wordIndex });
+// - log('tts.local.pause', {});
+// - log('tts.local.resume', {});
+// - log('tts.local.end', {});
 const TTS = (() => {
   let utterance = null;
   let fullText = '';
@@ -179,8 +313,8 @@ const TTS = (() => {
     const speakText = fullText.slice(startChar);
 
     utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.onstart = () => sendActive('playing');
-    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); };
+    utterance.onstart = () => { sendActive('playing'); log('tts.local.start', { idx: currentChapterIdx }); };
+    utterance.onend   = () => { sendActive('stopped'); sendProgress(100); log('tts.local.end', { idx: currentChapterIdx }); };
     utterance.onerror = () => { sendActive('stopped'); sendProgress(100); };
 
     let lastBoundary = performance.now();
@@ -198,6 +332,7 @@ const TTS = (() => {
         sendWordHighlight(startWordIdx + wordIndex);
         wordIndex++;
         sendProgress();
+        log('tts.local.boundary', { word: startWordIdx + wordIndex });
       }
     };
 
@@ -206,7 +341,7 @@ const TTS = (() => {
     sendProgress();
   }
 
-  function pause() { speechSynthesis.pause(); isPaused = true; sendActive('paused'); showToast('Paused'); }
+  function pause() { speechSynthesis.pause(); isPaused = true; sendActive('paused'); showToast('Paused'); log('tts.local.pause', {}); }
   function resume() { speechSynthesis.resume(); isPaused = false; sendActive('playing'); showToast('Playing'); }
 
   function stop() { if (utterance) { speechSynthesis.cancel(); } utterance = null; isPaused = false; }
@@ -263,108 +398,4 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'CH_PAUSE')  { TTS.pause(); }
   if (msg.type === 'CH_REPLAY') { TTS.rewind10(); }
   if (msg.type === 'CH_SKIP')   { TTS.skip10(); }
-});
-
-// --- OpenAI TTS audio player messages ---
-let oaAudio = null;
-let oaIdx = null;
-function ensureOaAudio() {
-  if (oaAudio) return oaAudio;
-  oaAudio = new Audio();
-  oaAudio.preload = 'auto';
-  oaAudio.addEventListener('ended', () => {
-    if (oaIdx != null) sendChapterState(oaIdx, 'stopped');
-    showAiToast('Finished');
-    updateOaProgress(100);
-  });
-  oaAudio.addEventListener('timeupdate', () => {
-    updateOaProgress((oaAudio.currentTime / Math.max(1, oaAudio.duration)) * 100);
-  });
-  return oaAudio;
-}
-
-function oaPlayUrl(idx, url) {
-  oaIdx = idx;
-  const a = ensureOaAudio();
-  a.src = url;
-  a.currentTime = 0;
-  a.play().catch(()=>{});
-  sendChapterState(idx, 'playing');
-  showAiToast('Playing');
-}
-function oaPause() {
-  if (!oaAudio) return;
-  oaAudio.pause();
-  if (oaIdx != null) sendChapterState(oaIdx, 'paused');
-  showAiToast('Paused');
-}
-function oaSeekBy(sec) {
-  const a = ensureOaAudio();
-  if (!a.duration || Number.isNaN(a.duration)) return;
-  a.currentTime = Math.max(0, Math.min(a.duration - 0.25, (a.currentTime || 0) + sec));
-  if (sec > 0) showAiToast('Skipped 10s'); else showAiToast('Rewound 10s');
-}
-function updateOaProgress(percent) {
-  if (oaIdx == null) return;
-  const target = document.querySelector(`.ai-tts-chapter[data-chapter-index="${oaIdx}"]`);
-  const bar = target?.querySelector('.ai-tts-progress__bar');
-  if (bar) bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-}
-function sendChapterState(idx, state) {
-  chrome.runtime.sendMessage({ type: 'CH_ACTIVE', idx, state });
-}
-
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'OA_PLAY_URL') {
-    oaPlayUrl(msg.idx, msg.url);
-  }
-  if (msg.type === 'OA_PAUSE') { oaPause(); }
-  if (msg.type === 'OA_REPLAY') { oaSeekBy(-(msg.seconds ?? 10)); }
-  if (msg.type === 'OA_SKIP')   { oaSeekBy( +(msg.seconds ?? 10)); }
-});
-
-// Persist/apply TTS settings
-let TTS_SETTINGS = {};
-chrome.storage.sync.get(['rate','voice','preferLocal','useOpenAi','openai_api_key','openai_voice'], (s) => {
-  TTS_SETTINGS = s || {};
-});
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'sync') {
-    chrome.storage.sync.get(['rate','voice','preferLocal','useOpenAi','openai_api_key','openai_voice'], (s) => {
-      TTS_SETTINGS = s || {};
-    });
-  }
-});
-
-// Update chapter button logic to respect mode
-function getChapterText(chapter) {
-  // ...existing code to extract text...
-}
-
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.ai-tts-play, .ai-tts-pause, .ai-tts-replay');
-  if (!btn) return;
-  const chapter = btn.closest('.ai-tts-chapter');
-  const idx = chapter?.dataset?.chapterIndex;
-  if (btn.classList.contains('ai-tts-play')) {
-    const text = getChapterText(chapter);
-    chrome.storage.sync.get(['useOpenAi'], (s) => {
-      if (s.useOpenAi) {
-        chrome.runtime.sendMessage({ type: 'OA_PLAY', idx, text });
-      } else {
-        chrome.runtime.sendMessage({ type: 'CH_PLAY', idx, text });
-      }
-    });
-  }
-  if (btn.classList.contains('ai-tts-pause')) {
-    chrome.storage.sync.get(['useOpenAi'], (s) => {
-      chrome.runtime.sendMessage(s.useOpenAi ? { type: 'OA_PAUSE' } : { type: 'CH_PAUSE', idx });
-    });
-  }
-  if (btn.classList.contains('ai-tts-replay')) {
-    chrome.storage.sync.get(['useOpenAi'], (s) => {
-      const msg = { idx, seconds: 10 };
-      chrome.runtime.sendMessage(s.useOpenAi ? { type:'OA_REPLAY', ...msg } : { type:'CH_REPLAY', ...msg });
-    });
-  }
 });
