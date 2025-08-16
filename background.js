@@ -53,88 +53,51 @@ function log(evt, meta = {}) {
   });
 }
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (sender.tab?.id) state.tabId = sender.tab.id;
-  log('rx.message', { type: msg.type, from: sender?.url ? 'content' : 'popup/bg' });
-
-  // Relay TTS commands to content.js
-  if (state.tabId && (
-    msg.type === 'CH_PLAY' ||
-    msg.type === 'CH_PAUSE' ||
-    msg.type === 'CH_REPLAY' ||
-    msg.type === 'CH_SKIP' ||
-    msg.type === 'CH_BOOKMARK' ||
-    msg.type === 'SET_RATE' ||
-    msg.type === 'SET_VOICE' ||
-    msg.type === 'PREF_LOCAL'
-  )) {
-    chrome.tabs.sendMessage(state.tabId, msg);
-    sendResponse?.({ ok: true });
-    return true;
-  }
-
-  // OpenAI TTS flow (fetch -> send URL to content script)
-  if (msg.type === 'OA_PLAY' && msg.text) {
-    log('oa.play.request', { idx: msg.idx, chars: msg.text.length });
-    (async () => {
-      try {
-        const { useOpenAi, openai_api_key, openai_voice } = await getSettings();
-        log('settings.loaded', { useOpenAi: !!useOpenAi, voice: openai_voice ? String(openai_voice) : null, hasKey: !!openai_api_key });
-        if (!useOpenAi) { log('oa.play.denied', { reason: 'mode-off' }); sendResponse?.({ ok:false, err:'OpenAI mode off' }); return; }
-        if (!openai_api_key) { log('oa.play.denied', { reason: 'missing-key' }); sendResponse?.({ ok:false, err:'Missing API key' }); return; }
-
-        const cacheKey = `${msg.idx}|${hash(msg.text)}|${openai_voice||'alloy'}`;
-        let blob = state.blobs.get(cacheKey);
-        if (!blob) {
-          log('oa.fetch.start', { model: 'gpt-4o-mini-tts', voice: openai_voice || 'alloy' });
-          blob = await openAiTtsToBlob(msg.text, openai_api_key, openai_voice || 'alloy');
-          log('oa.fetch.ok', { size: blob.size });
-          state.blobs.set(cacheKey, blob);
-        }
-        const url = URL.createObjectURL(blob);
-        chrome.tabs.sendMessage(state.tabId, { type: 'OA_PLAY_URL', idx: msg.idx, url });
-        log('tx.to-content', { type: 'OA_PLAY_URL', idx: msg.idx });
-        sendResponse?.({ ok: true });
-      } catch (e) {
-        log('oa.fetch.err', { message: String(e?.message || e) });
-        sendResponse?.({ ok:false, err: String(e?.message || e) });
-      }
-    })();
-    return true; // async
-  }
-
-  if (msg.type === 'OA_PAUSE') {
-    chrome.tabs.sendMessage(state.tabId, { type: 'OA_PAUSE' }); sendResponse?.({ok:true}); return true;
-  }
-  if (msg.type === 'OA_REPLAY') {
-    chrome.tabs.sendMessage(state.tabId, { type: 'OA_REPLAY', seconds: msg.seconds ?? 10 }); sendResponse?.({ok:true}); return true;
-  }
-  if (msg.type === 'OA_SKIP') {
-    chrome.tabs.sendMessage(state.tabId, { type: 'OA_SKIP', seconds: msg.seconds ?? 10 }); sendResponse?.({ok:true}); return true;
-  }
-});
-
-// Keyboard shortcuts (MV3 "commands") → forward to active tab
+// --- Relay helpers (avoid sending to non-ChatGPT tabs) ---
+async function getActiveChatTab() {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const t = tabs[0];
+  if (!t?.id || !/^https:\/\/chat\.openai\.com\b/.test(t.url || '')) return null;
+  return t;
+}
 async function relayToActiveTab(payload) {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return;
-  chrome.tabs.sendMessage(tab.id, payload);
+  try {
+    const t = await getActiveChatTab();
+    if (!t) return;
+    chrome.tabs.sendMessage(t.id, payload);
+  } catch {}
 }
 
-chrome.commands.onCommand.addListener((cmd) => {
-  if (cmd === 'replay-10s') relayToActiveTab({ type: 'CH_REPLAY', seconds: 10 });
-  if (cmd === 'skip-10s')   relayToActiveTab({ type: 'CH_SKIP', seconds: 10 });
-  if (cmd === 'play-pause') relayToActiveTab({ type: 'CH_TOGGLE' });
+chrome.commands.onCommand.addListener((command) => {
+  switch (command) {
+    case 'play-pause':      // must match manifest.json
+      relayToActiveTab({ type: 'CH_TOGGLE' });
+      break;
+    case 'replay-10s':
+      relayToActiveTab({ type: 'CH_REPLAY', seconds: 10 });
+      break;
+    case 'skip-10s':
+      relayToActiveTab({ type: 'CH_SKIP', seconds: 10 });
+      break;
+  }
 });
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === 'CH_PLAY') relayToActiveTab({ type: 'CH_PLAY', idx: msg.idx, text: msg.text });
-  if (msg.type === 'CH_PAUSE') relayToActiveTab({ type: 'CH_PAUSE' });
-  if (msg.type === 'SET_RATE') relayToActiveTab({ type: 'SET_RATE', rate: msg.rate });
-  if (msg.type === 'SET_VOICE') relayToActiveTab({ type: 'SET_VOICE', voiceName: msg.voiceName });
+chrome.runtime.onMessage.addListener(async (msg, sender) => {
+  // Map popup/content events to the page content engine
+  if (msg.type === 'CH_PLAY')    relayToActiveTab({ type: 'CH_PLAY', idx: msg.idx, text: msg.text });
+  if (msg.type === 'CH_TOGGLE')  relayToActiveTab({ type: 'CH_TOGGLE' });
+  if (msg.type === 'CH_PAUSE')   relayToActiveTab({ type: 'CH_PAUSE' });
+  if (msg.type === 'CH_REPLAY')  relayToActiveTab({ type: 'CH_REPLAY', seconds: msg.seconds ?? 10 });
+  if (msg.type === 'CH_SKIP')    relayToActiveTab({ type: 'CH_SKIP', seconds: msg.seconds ?? 10 });
+  if (msg.type === 'SET_RATE')   relayToActiveTab({ type: 'SET_RATE', rate: msg.rate });
+  if (msg.type === 'SET_VOICE')  relayToActiveTab({ type: 'SET_VOICE', voiceName: msg.voiceName });
+  if (msg.type === 'PREF_LOCAL') relayToActiveTab({ type: 'PREF_LOCAL', value: !!msg.value });
+
+  // Back-compat with earlier popup button:
+  if (msg.type === 'play-stored-audio') relayToActiveTab({ type: 'CH_TOGGLE' });
 });
 
-// --- Helpers ---
+// --- OpenAI TTS functionality ---
 async function getSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(['useOpenAi','openai_api_key','openai_voice'], (s) => resolve(s || {}));
